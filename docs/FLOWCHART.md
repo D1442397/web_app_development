@@ -1,87 +1,66 @@
-# 系統流程圖與使用者操作路徑 (Flowcharts) - 食譜收藏夾系統
+# 賽特選房系統 - 流程圖文件 (FLOWCHART)
 
-以下文件根據現有的 [PRD.md](./PRD.md) 和 [ARCHITECTURE.md](./ARCHITECTURE.md) 設計，透過視覺化圖表釐清使用者的操作路徑與後端的資料流，並定義出各個功能的對應路由。
+本文件依據 PRD 與技術架構設計，將系統的核心操作邏輯視覺化，包含使用者的操作路徑與系統內的資料流動方式。
 
-## 1. 使用者流程圖（User Flow）
+## 1. 使用者流程圖 (User Flow)
 
-此流程圖呈現一般使用者從進入網站開始，可能採取的各項操作行為。包含了「身份驗證」、「瀏覽與搜尋」以及「食譜管理」等核心情境。
+描述使用者登入系統後，如何前往不同功能模組進行智能選房、設定停損、開啟自動掛機與進行出金。
 
 ```mermaid
-flowchart TD
-  A([使用者開啟網頁]) --> B[首頁 / 搜尋入口]
-
-  %% 搜尋與瀏覽分支
-  B --> C{選擇搜尋方式}
-  C -->|關鍵字搜尋| D[食譜列表頁]
-  C -->|食材組合過濾| E[對應食材食譜列表頁]
-  
-  D --> F[單一食譜詳情頁]
-  E --> F
-  
-  %% 會員與登入分支
-  B --> G{會員狀態}
-  G -->|未登入| H[登入/註冊頁面]
-  H -->|成功| B
-  
-  G -->|已登入| I[會員中心 / 我的收藏]
-  I --> J{操作項目}
-  
-  %% 增刪改查分支
-  J -->|新增| K[填寫新建食譜表單]
-  K -->|儲存| L([資料庫處理並重導覽])
-  L --> F
-  
-  J -->|查看與管理個人食譜| D
-  D -->|若為自己擁有的食譜| M{編輯或刪除?}
-  M -->|編輯| N[填寫編輯食譜表單]
-  N -->|儲存| L
-  M -->|刪除| O([確認刪除重導向])
-  O --> I
+flowchart LR
+    A([使用者登入網站]) --> B[首頁儀表板 / Dashboard]
+    
+    B --> C{選擇功能模組}
+    
+    C -->|分析與選房| D[房間列表與智能推薦]
+    D --> E[進入個別房間設定]
+    E --> F[設定預期停損點]
+    F --> G[啟動自動操作 (掛機模式)]
+    G --> H[系統後台監控與操作]
+    H -.->|快爆分警報推播| B
+    
+    C -->|資金管理| I[財務與出金管理]
+    I --> J[填寫出金申請]
+    J --> K[系統檢核水位與餘額]
+    K -->|檢核通過| L([完成出金手續])
+    K -->|檢核失敗| M([提示失敗並退回紀錄])
 ```
 
-## 2. 系統序列圖（Sequence Diagram）
+## 2. 系統序列圖 (Sequence Diagram)
 
-此圖以「**使用者新增食譜**」這項操作為例，詳細描繪了整個系統後端（MVC 架構）的運作順序——從網頁送出請求到資料庫存取並回傳重新導向的流程。
+以下以「使用者啟動自動操作與停損點」為例，描述資料如何在前端瀏覽器、Flask 路由、後端演算法與資料庫間傳遞。
 
 ```mermaid
 sequenceDiagram
-  actor User as 使用者
-  participant Browser as 瀏覽器
-  participant Route as Flask Route (Controller)
-  participant Model as Model (資料庫互動層)
-  participant DB as SQLite DB
-  
-  User->>Browser: 填寫「新增食譜表單」並點擊送出
-  Browser->>Route: 發送 POST /recipes 請求 (夾帶表單資料)
-  
-  Route->>Route: 1. 驗證使用者是否已登入
-  Route->>Route: 2. 驗證表單輸入 (如：標題是否空白)
-  
-  Route->>Model: 呼叫 Recipe.create(data)
-  Model->>DB: 執行 INSERT INTO recipes ...
-  DB-->>Model: 回傳新記錄的建立狀態 (ID)
-  Model-->>Route: 回傳新建食譜的物件
-  
-  Route-->>Browser: 回傳 HTTP 302 Redirect 重導向至 /recipes/{id} (詳情頁)
-  Browser->>User: 顯示已成功新增的食譜頁面
+    actor User as 使用者
+    participant Browser as 瀏覽器 (前端頁面)
+    participant Flask as Flask Route (bot.py)
+    participant Algo as 演算法模組 (algorithm.py)
+    participant DB as SQLite 資料庫
+    
+    User->>Browser: 調整停損點並點擊「啟動掛機」
+    Browser->>Flask: POST /api/bot/start (攜帶房間ID與停損參數)
+    Flask->>DB: 驗證帳戶存款與此房間當前狀態
+    DB-->>Flask: 驗證成功 (餘額充足)
+    Flask->>Algo: 初始化並寫入掛機監控排程
+    Algo-->>Flask: 回傳排程啟動狀態
+    Flask->>DB: UPDATE rooms/user 寫入掛機狀態與停損點
+    DB-->>Flask: 更新成功
+    Flask-->>Browser: HTTP 200 回傳啟動成功訊息
+    Browser-->>User: 畫面顯示「掛機中」，並即時更新數據
 ```
 
 ## 3. 功能清單對照表
 
-本清單列出未來將實作的功能，以及對應的 URL 路徑 (Routes) 和 HTTP 請求方法。由於原生 HTML 表單僅支援 GET 與 POST，故我們在更新/刪除資源時會透過 `POST` 方法加上特定後綴路徑來實作。
+將 PRD 的主要功能對應到 Flask 的 URL 路徑以及 HTTP 方法，做為後續實作（API 設計）的準備參考：
 
-| 功能模塊 | 具體功能描述 | HTTP 方法 | URL 路徑 (Route) | 備註 |
-| --- | --- | --- | --- | --- |
-| **公開瀏覽** | 網站首頁 | GET | `/` | 顯示搜尋框與推薦食譜 |
-| | 食譜列表與搜尋結果 | GET | `/recipes` | 若帶有 `?q=` 參數則為關鍵字搜尋 |
-| | 食材組合過濾搜尋 | GET | `/recipes/search_by_ingredients` | 依據選擇的多樣食材進行過濾 |
-| | 檢視單一食譜詳情 | GET | `/recipes/<int:recipe_id>` | 查看公開的食譜 |
-| **會員管理** | 註冊帳號頁面與處理 | GET / POST | `/register` | 包含頁面渲染(GET)與表單送出(POST) |
-| | 登入頁面與處理 | GET / POST | `/login` | 驗證帳密並建立 Session |
-| | 登出處理 | GET | `/logout` | 清除使用者 Session |
-| **食譜管理<br>(需登入)** | 新增食譜頁面 | GET | `/recipes/new` | 提供空白輸入表單 |
-| | 儲存新食譜資料 | POST | `/recipes` | 將表單接收並寫入資料庫 |
-| | 編輯食譜頁面 | GET | `/recipes/<int:recipe_id>/edit` | 將既有資料填入表單讓使用者修改 |
-| | 儲存修改的食譜 | POST | `/recipes/<int:recipe_id>/update` | 儲存使用者更新的資料 |
-| | 刪除食譜 | POST | `/recipes/<int:recipe_id>/delete` | 驗證擁有者身分或管理員權限後刪除 |
-| **後台管理** | 管理員儀表板 | GET | `/admin` | 僅允許管理員檢視全域食譜與用戶列表 |
+| 功能描述 | URL 路徑 | HTTP 方法 | 對應控制器 (Route) |
+| :--- | :--- | :--- | :--- |
+| **首頁儀表板** (查看資金與整體狀態) | `/` | `GET` | `routes/main.py` |
+| **智能推薦房間列表** | `/rooms` | `GET` | `routes/main.py` |
+| **啟動房間掛機與設定停損** | `/api/bot/start` | `POST` | `routes/bot.py` |
+| **停止掛機** | `/api/bot/stop` | `POST` | `routes/bot.py` |
+| **獲取快爆分警報** (前端輪詢使用) | `/api/alerts` | `GET` | `routes/bot.py` |
+| **出金申請頁面** | `/finance/withdrawal` | `GET` | `routes/finance.py` |
+| **提交出金申請** | `/finance/withdrawal` | `POST` | `routes/finance.py` |
+| **通知處理 Webhook / 背景更新** | `/api/webhook` | `POST` | `routes/main.py` |
